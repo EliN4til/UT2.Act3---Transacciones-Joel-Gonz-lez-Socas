@@ -1,6 +1,7 @@
 import sqlite3
 import re
 import conectar as conectar
+import creartablas as creartablas
 
 def validar_dni(dni):
     """
@@ -574,4 +575,6 @@ def menu():
             print("Opcion no valida. Intenta de nuevo.")
 
 if __name__ == "__main__":
+    creartablas.crear_tablas()
+    creartablas.insertar_datos()
     menu()
