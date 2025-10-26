@@ -278,38 +278,269 @@ def eliminar_empleado_proyecto():
     finally:
         con.close()
 
-def registrar_empleado():
-    # Registramos a un nuevo empleado en la base de datos mediante una transacción START TRANSACTION
+def registrar_proyecto():
+    """
+    Registra un nuevo proyecto y asigna a los empleados usando una transacción
+    """
     con, cur = conectar.conectar()
     if con is None:
         return
+    
     try:
-        dni = input("Introduce el DNI del empleado: ").strip().upper()
-        if not validar_dni(dni):
-            print("DNI no válido. Operación cancelada.")
-            return
-
-        nombre = input("Nombre del empleado: ")
-        puesto = input("Puesto del empleado: ")
-        email = input("Email del empleado: ")
-        if not validar_email(email):
-            print("Correo electrónico no válido.")
-            return
+        con.execute("BEGIN TRANSACTION")
+        
+        print("\n=== REGISTRAR NUEVO PROYECTO ===")
+        
+        titulo = input("Título del proyecto: ")
+        descripcion = input("Descripción del proyecto: ")
+        fecha_inicio = input("Fecha de inicio (YYYY-MM-DD): ")
+        fecha_fin = input("Fecha de fin (YYYY-MM-DD): ")
+        presupuesto = input("Presupuesto: ")
+        
+        # Validamos que el presupuesto sea un número
+        try:
+            float(presupuesto)
+        except ValueError:
+            raise ValueError("El presupuesto debe ser un número")
+        
+        print("\nClientes disponibles:")
+        cur.execute("SELECT DNI_CIF, NOMBRE FROM CLIENTE")
+        clientes = cur.fetchall()
+        if not clientes:
+            raise ValueError("No hay clientes registrados en la base de datos")
+        for dni, nombre in clientes:
+            print(f"- {dni}: {nombre}")
+        
+        id_cliente = input("\nDNI/CIF del cliente: ").strip().upper()
+        
+        # Verificamos que el cliente existe en la base de datos
+        cur.execute("SELECT COUNT(*) FROM CLIENTE WHERE DNI_CIF = ?", (id_cliente,))
+        if cur.fetchone()[0] == 0:
+            raise ValueError("El cliente no existe")
+        
+        print("\nEmpleados disponibles para jefe de proyecto:")
+        cur.execute("SELECT DNI_CIF, NOMBRE, PUESTO FROM EMPLEADOS")
+        empleados = cur.fetchall()
+        if not empleados:
+            raise ValueError("No hay empleados registrados en la base de datos")
+        for dni, nombre, puesto in empleados:
+            print(f"- {dni}: {nombre} ({puesto})")
+        
+        id_jefe_proyecto = input("\nDNI del jefe de proyecto (opcional): ").strip().upper()
+        if id_jefe_proyecto:
+            cur.execute("SELECT COUNT(*) FROM EMPLEADOS WHERE DNI_CIF = ?", (id_jefe_proyecto,))
+            if cur.fetchone()[0] == 0:
+                raise ValueError("El jefe de proyecto no existe")
+        
+        # Insertamos el nuevo proyecto en la tabla PROYECTOS
+        cur.execute("""
+            INSERT INTO PROYECTOS (TITULO_PROYECTO, DESCRIPCION, FECHA_INICIO, FECHA_FIN, PRESUPUESTO, ID_CLIENTE, ID_JEFE_PROYECTO)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (titulo, descripcion, fecha_inicio, fecha_fin, float(presupuesto), id_cliente, id_jefe_proyecto if id_jefe_proyecto else None))
+        
+        id_proyecto = cur.lastrowid
+        
+        # Asignamos los empleados al proyecto 
+        print("\n=== ASIGNAR EMPLEADOS AL PROYECTO ===")
+        while True:
+            dni_empleado = input("\nDNI del empleado a asignar (deja este campo vacío para terminar de insertar empleados al proyecto): ").strip().upper()
+            if not dni_empleado:
+                break
+                
+            # Verificamos que el empleado exista en la base de datos
+            cur.execute("SELECT COUNT(*) FROM EMPLEADOS WHERE DNI_CIF = ?", (dni_empleado,))
+            if cur.fetchone()[0] == 0:
+                raise ValueError(f"El empleado con DNI {dni_empleado} no existe en la base de datos")
+            
+            # Insertamos la relación en la tabla de EMPLEADOS_PROYECTOS
+            cur.execute("""
+                INSERT INTO EMPLEADOS_PROYECTOS (DNI_CIF_EMPLEADO, ID_PROYECTO)
+                VALUES (?, ?)
+            """, (dni_empleado, id_proyecto))
+            
+            print(f"Empleado {dni_empleado} asignado al proyecto")
+        
+        con.commit()
+        print("Proyecto registrado correctamente con sus asignaciones de empleados")
+        
     except Exception as e:
-        print(f"Error al leer dat {e}")
-        cur.execute(""" START TRANSACTION
-        INSERT INTO EMPLEADOS (DNI_CIF, NOMBRE, PUESTO, EMAIL)
-                    VALUES (?, ?, ?, ?)""", (dni, nombre, puesto, email))
+        con.rollback()
+        print(f"Error: {e}. Se ha revertido la operación.")
+    finally:
+        con.close()
+
+
+def eliminar_proyecto():
+    """
+    Elimina un proyecto y sus asignaciones usando transacción
+    """
+    con, cur = conectar.conectar()
+    if con is None:
+        return
+    
+    try:
+        con.execute("BEGIN TRANSACTION")
+        
+        print("\n=== ELIMINAR PROYECTO ===")
+        
+        print("Proyectos disponibles:")
+        cur.execute("SELECT ID, TITULO_PROYECTO FROM PROYECTOS")
+        proyectos = cur.fetchall()
+        if not proyectos:
+            raise ValueError("No hay proyectos registrados en la base de datos")
+        for id_proy, titulo in proyectos:
+            print(f"- ID {id_proy}: {titulo}")
+        
+        id_proyecto = input("\nID del proyecto a eliminar: ")
+        
+        if not id_proyecto.isdigit():
+            raise ValueError("El ID del proyecto debe ser un número")
+        
+        # Verificar que el proyecto existe
+        cur.execute("SELECT COUNT(*) FROM PROYECTOS WHERE ID = ?", (id_proyecto,))
+        if cur.fetchone()[0] == 0:
+            raise ValueError("El proyecto no existe")
+        
+        # Eliminamos las asignaciones de empleados primero (por la clave foránea)
+        cur.execute("DELETE FROM EMPLEADOS_PROYECTOS WHERE ID_PROYECTO = ?", (id_proyecto,))
+        
+        # Eliminamos el proyecto
+        cur.execute("DELETE FROM PROYECTOS WHERE ID = ?", (id_proyecto,))
+        
+        con.commit()
+        print("Proyecto y sus asignaciones eliminados correctamente")
+        
+    except Exception as e:
+        con.rollback()
+        print(f"Error: {e}. Se ha revertido la operación.")
+    finally:
+        con.close()
+
+
+def transferir_proyecto():
+    """
+    Transfiere un proyecto a otro cliente usando transacción
+    """
+    con, cur = conectar.conectar()
+    if con is None:
+        return
+    
+    try:
+        con.execute("BEGIN TRANSACTION")
+        
+        print("\n=== TRANSFERIR PROYECTO A OTRO CLIENTE ===")
+        
+        print("Proyectos disponibles:")
+        cur.execute("SELECT ID, TITULO_PROYECTO, ID_CLIENTE FROM PROYECTOS")
+        proyectos = cur.fetchall()
+        if not proyectos:
+            raise ValueError("No hay proyectos registrados en la base de datos")
+        for id_proy, titulo, id_cliente in proyectos:
+            print(f"- ID {id_proy}: {titulo} (Cliente actual: {id_cliente})")
+        
+        id_proyecto = input("\nID del proyecto a transferir: ")
+        
+        if not id_proyecto.isdigit():
+            raise ValueError("El ID del proyecto debe ser un número")
+        
+        # Verificar que el proyecto existe
+        cur.execute("SELECT COUNT(*) FROM PROYECTOS WHERE ID = ?", (id_proyecto,))
+        if cur.fetchone()[0] == 0:
+            raise ValueError("El proyecto no existe")
+        
+        print("\nClientes disponibles:")
+        cur.execute("SELECT DNI_CIF, NOMBRE FROM CLIENTE")
+        clientes = cur.fetchall()
+        if not clientes:
+            raise ValueError("No hay clientes registrados en la base de datos")
+        for dni, nombre in clientes:
+            print(f"- {dni}: {nombre}")
+        
+        nuevo_cliente = input("\nDNI/CIF del nuevo cliente: ").strip().upper()
+        
+        # Verificamos que el nuevo cliente existe
+        cur.execute("SELECT COUNT(*) FROM CLIENTE WHERE DNI_CIF = ?", (nuevo_cliente,))
+        if cur.fetchone()[0] == 0:
+            raise ValueError("El nuevo cliente no existe")
+        
+        # Actualizamos el proyecto con el nuevo cliente
+        cur.execute("UPDATE PROYECTOS SET ID_CLIENTE = ? WHERE ID = ?", (nuevo_cliente, id_proyecto))
+        
+        con.commit()
+        print("Proyecto transferido correctamente al nuevo cliente")
+        
+    except Exception as e:
+        con.rollback()
+        print(f"Error: {e}. Se ha revertido la operación.")
+    finally:
+        con.close()
+
+def registrar_empleado():
+    """
+    Registra un nuevo empleado en la base de datos usando una transacción
+    """
+    con, cur = conectar.conectar()
+    if con is None:
+        return
+    
+    try:
+        con.execute("BEGIN TRANSACTION")
+        
+        print("\n=== REGISTRAR NUEVO EMPLEADO ===")
+        
+        # Solicitamos los datos del empleado
+        dni = input("DNI del empleado: ").strip().upper()
+        
+        # Validamos su DNI
+        if not validar_dni(dni):
+            raise ValueError("DNI no válido")
+        
+        # Verificamos si el empleado existía anteriormente
+        cur.execute("SELECT COUNT(*) FROM EMPLEADOS WHERE DNI_CIF = ?", (dni,))
+        if cur.fetchone()[0] > 0:
+            raise ValueError("Ya existe un empleado con este DNI")
+        
+        nombre = input("Nombre completo del empleado: ").strip()
+        if not nombre:
+            raise ValueError("El nombre no puede estar vacío")
+        
+        puesto = input("Puesto del empleado: ").strip()
+        if not puesto:
+            raise ValueError("El puesto no puede estar vacío")
+        
+        email = input("Email del empleado: ").strip()
+        if email and not validar_email(email):
+            raise ValueError("Email no válido")
+        
+        # Insertamos el empleado nuevo en la tabla EMPLEADOS
+        cur.execute("""
+            INSERT INTO EMPLEADOS (DNI_CIF, NOMBRE, PUESTO, EMAIL)
+            VALUES (?, ?, ?, ?)
+        """, (dni, nombre, puesto, email if email else None))
+        
+        con.commit()
+        print("Empleado registrado correctamente")
+        
+    except Exception as e:
+        con.rollback()
+        print(f"Error: {e}. No se pudo registrar el empleado.")
+    finally:
+        con.close()
+
 def menu():
     while True:
         print("\n=== GESTIÓN DE PROYECTOS ===")
         print("1. Actualizar cliente")
         print("2. Actualizar empleado")
-        print("3. Actualizar presupuesto de proyecto")
-        print("4. Consultar proyectos de un cliente")
-        print("5. Consultar empleados de un proyecto")
-        print("6. Consultar proyectos de un empleado")
-        print("7. Eliminar empleado de un proyecto")
+        print("3. Registrar nuevo empleado")
+        print("4. Actualizar presupuesto de proyecto")
+        print("5. Consultar proyectos de un cliente")
+        print("6. Consultar empleados de un proyecto")
+        print("7. Consultar proyectos de un empleado")
+        print("8. Eliminar empleado de un proyecto")
+        print("9. Registrar nuevo proyecto con empleados")
+        print("10. Eliminar proyecto y asignaciones")
+        print("11. Transferir proyecto a otro cliente")
         print("0. Salir")
 
         opcion = input("\nElige una opción: ")
@@ -319,20 +550,28 @@ def menu():
         elif opcion == "2":
             actualizar_empleado()
         elif opcion == "3":
-            actualizar_presupuesto()
+            registrar_empleado()
         elif opcion == "4":
-            consultar_proyectos_cliente()
+            actualizar_presupuesto()
         elif opcion == "5":
-            consultar_empleados_proyecto()
+            consultar_proyectos_cliente()
         elif opcion == "6":
-            consultar_proyectos_empleado()
+            consultar_empleados_proyecto()
         elif opcion == "7":
+            consultar_proyectos_empleado()
+        elif opcion == "8":
             eliminar_empleado_proyecto()
+        elif opcion == "9":
+            registrar_proyecto()
+        elif opcion == "10":
+            eliminar_proyecto()
+        elif opcion == "11":
+            transferir_proyecto()
         elif opcion == "0":
             print("Saliendo del programa...")
             break
         else:
-            print("Opción no válida. Intenta de nuevo.")
+            print("Opcion no valida. Intenta de nuevo.")
 
 if __name__ == "__main__":
     menu()
