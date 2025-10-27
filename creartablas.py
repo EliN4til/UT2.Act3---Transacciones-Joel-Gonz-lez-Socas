@@ -1,4 +1,3 @@
-# creartablas.py
 import sqlite3
 import conectar as conectar
 
