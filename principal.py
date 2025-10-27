@@ -33,6 +33,13 @@ def validar_email(email):
     patron = r'^[\w\.-]+@[\w\.-]+\.\w+$'
     return re.match(patron, email) is not None
 
+def validar_telefono(telefono):
+    """
+    Valida un número de teléfono básico (9 dígitos).
+    """
+    patron = r'^\d{9}$'
+    return re.match(patron, telefono) is not None
+
 def actualizar_cliente():
     con, cur = conectar.conectar()
     if con is None:
@@ -476,6 +483,58 @@ def transferir_proyecto():
     finally:
         con.close()
 
+def registrar_cliente():
+    """
+    Registra un nuevo cliente en la base de datos usando una transacción
+    """
+    con, cur = conectar.conectar()
+    if con is None:
+        return
+    
+    try:
+        con.execute("BEGIN TRANSACTION")
+        
+        print("\n=== REGISTRAR NUEVO CLIENTE ===")
+        
+        # Solicitamos los datos del cliente
+        dni = input("DNI/CIF del Cliente: ").strip().upper()
+        
+        # Validamos su DNI/CIF
+        if not (validar_dni(dni) or validar_cif(dni)):
+            raise ValueError("DNI/CIF no válido")
+        
+        # Verificamos si el cliente existía anteriormente
+        cur.execute("SELECT COUNT(*) FROM CLIENTE WHERE DNI_CIF = ?", (dni,))
+        if cur.fetchone()[0] > 0:
+            raise ValueError("Ya existe un cliente con este DNI/CIF")
+        
+        nombre = input("Nombre completo del cliente: ").strip()
+        if not nombre:
+            raise ValueError("El nombre no puede estar vacío")
+        
+        telefono = input("Telefono del cliente: ").strip()
+        if telefono and not validar_telefono(telefono):
+            raise ValueError("El telefono no puede estar vacío")
+        
+        email = input("Email del cliente: ").strip()
+        if email and not validar_email(email):
+            raise ValueError("Email no válido")
+        
+        # Insertamos el cliente nuevo en la tabla CLIENTE
+        cur.execute("""
+            INSERT INTO CLIENTE (DNI_CIF, NOMBRE, TELEFONO, EMAIL)
+            VALUES (?, ?, ?, ?)
+        """, (dni, nombre, telefono, email if email else None))
+        
+        con.commit()
+        print("El cliente se ha registrado correctamente")
+        
+    except Exception as e:
+        con.rollback()
+        print(f"Error: {e}. No se pudo registrar el cliente.")
+    finally:
+        con.close()
+
 def registrar_empleado():
     """
     Registra un nuevo empleado en la base de datos usando una transacción
@@ -533,15 +592,16 @@ def menu():
         print("\n=== GESTIÓN DE PROYECTOS ===")
         print("1. Actualizar cliente")
         print("2. Actualizar empleado")
-        print("3. Registrar nuevo empleado")
-        print("4. Actualizar presupuesto de proyecto")
-        print("5. Consultar proyectos de un cliente")
-        print("6. Consultar empleados de un proyecto")
-        print("7. Consultar proyectos de un empleado")
-        print("8. Eliminar empleado de un proyecto")
-        print("9. Registrar nuevo proyecto con empleados")
-        print("10. Eliminar proyecto y asignaciones")
-        print("11. Transferir proyecto a otro cliente")
+        print("3. Registrar nuevo cliente")
+        print("4. Registrar nuevo empleado")
+        print("5. Actualizar presupuesto de proyecto")
+        print("6. Consultar proyectos de un cliente")
+        print("7. Consultar empleados de un proyecto")
+        print("8. Consultar proyectos de un empleado")
+        print("9. Eliminar empleado de un proyecto")
+        print("10. Registrar nuevo proyecto con empleados")
+        print("11. Eliminar proyecto y asignaciones")
+        print("12. Transferir proyecto a otro cliente")
         print("0. Salir")
 
         opcion = input("\nElige una opción: ")
@@ -551,22 +611,24 @@ def menu():
         elif opcion == "2":
             actualizar_empleado()
         elif opcion == "3":
-            registrar_empleado()
+            registrar_cliente()
         elif opcion == "4":
-            actualizar_presupuesto()
+            registrar_empleado()
         elif opcion == "5":
-            consultar_proyectos_cliente()
+            actualizar_presupuesto()
         elif opcion == "6":
-            consultar_empleados_proyecto()
+            consultar_proyectos_cliente()
         elif opcion == "7":
-            consultar_proyectos_empleado()
+            consultar_empleados_proyecto()
         elif opcion == "8":
-            eliminar_empleado_proyecto()
+            consultar_proyectos_empleado()
         elif opcion == "9":
-            registrar_proyecto()
+            eliminar_empleado_proyecto()
         elif opcion == "10":
-            eliminar_proyecto()
+            registrar_proyecto()
         elif opcion == "11":
+            eliminar_proyecto()
+        elif opcion == "12":
             transferir_proyecto()
         elif opcion == "0":
             print("Saliendo del programa...")
